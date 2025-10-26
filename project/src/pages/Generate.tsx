@@ -1,384 +1,585 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
-  Zap, 
-  Upload, 
+  Atom, 
   Download, 
-  Settings, 
-  Atom,
-  Loader2,
-  CheckCircle,
-  AlertCircle
+  Loader2, 
+  Info, 
+  FlaskConical,
+  AlertCircle,
+  CheckCircle2,
+  Plus,
+  X,
+  Sliders,
+  Eye,
+  FileText
 } from 'lucide-react';
 
-interface GenerationParams {
-  bandGap: string;
-  symmetry: string;
-  magneticProperty: string;
-  bulkModulus: string;
-  density: string;
-  spaceGroup: string;
-  composition: string;
+// Type definitions
+interface LatticeParameters {
+  a: number;
+  b: number;
+  c: number;
+  alpha: number;
+  beta: number;
+  gamma: number;
+  volume: number;
+}
+
+interface AtomData {
+  element: string;
+  position: number[];
+  frac_coords: number[];
+}
+
+interface StructureResponse {
+  success: boolean;
+  formula?: string;
+  spacegroup: number;
+  lattice_parameters?: LatticeParameters;
+  atoms?: AtomData[];
+  xyz_data?: string;
+  cif_data?: string;
+  error?: string;
+}
+
+interface CompositionEntry {
+  element: string;
+  amount: number;
 }
 
 const Generate: React.FC = () => {
-  const [params, setParams] = useState<GenerationParams>({
-    bandGap: '',
-    symmetry: '',
-    magneticProperty: '',
-    bulkModulus: '',
-    density: '',
-    spaceGroup: '',
-    composition: ''
-  });
-  
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [results, setResults] = useState<any[]>([]);
-  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
+  const [spacegroup, setSpacegroup] = useState<number>(225);
+  const [composition, setComposition] = useState<CompositionEntry[]>([
+    { element: 'Fe', amount: 1 },
+    { element: 'O', amount: 1 }
+  ]);
+  const [numAtoms, setNumAtoms] = useState<number>(8);
+  const [temperature, setTemperature] = useState<number>(1.0);
+  const [newElement, setNewElement] = useState<string>('');
+  const [newAmount, setNewAmount] = useState<number>(1);
+  const [loading, setLoading] = useState<boolean>(false);
+  const [result, setResult] = useState<StructureResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [availableElements, setAvailableElements] = useState<string[]>([]);
+  const [viewerLoaded, setViewerLoaded] = useState<boolean>(false);
 
-  const handleInputChange = (field: keyof GenerationParams, value: string) => {
-    setParams(prev => ({ ...prev, [field]: value }));
-  };
+  const viewerRef = useRef<HTMLDivElement>(null);
+  const viewerInstanceRef = useRef<any>(null);
 
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file && file.name.endsWith('.cif')) {
-      setUploadedFile(file);
+  const API_URL = 'http://localhost:5000/api';
+
+  const defaultElements = [
+    'H','He','Li','Be','B','C','N','O','F','Ne',
+    'Na','Mg','Al','Si','P','S','Cl','Ar','K','Ca','Ti','Fe'
+  ];
+
+  // Load 3Dmol.js library
+  useEffect(() => {
+    const load3Dmol = () => {
+      if ((window as any).$3Dmol) {
+        setViewerLoaded(true);
+        return;
+      }
+
+      const script = document.createElement('script');
+      script.src = 'https://3Dmol.csb.pitt.edu/build/3Dmol-min.js';
+      script.async = false;
+      script.onload = () => {
+        console.log('3Dmol.js loaded successfully');
+        setViewerLoaded(true);
+      };
+      script.onerror = () => {
+        console.error('Failed to load 3Dmol.js');
+        setError('Failed to load 3D visualization library');
+      };
+      document.head.appendChild(script);
+    };
+
+    load3Dmol();
+  }, []);
+
+  // Fetch available elements
+  useEffect(() => {
+    const fetchElements = async () => {
+      try {
+        const response = await fetch(`${API_URL}/elements`);
+        const data = await response.json();
+        setAvailableElements(data.elements || defaultElements);
+      } catch (err) {
+        console.error('Failed to fetch elements:', err);
+        setAvailableElements(defaultElements);
+      }
+    };
+
+    fetchElements();
+  }, []);
+
+  // Initialize 3D viewer when result changes
+  useEffect(() => {
+    if (result && result.xyz_data && viewerLoaded && viewerRef.current) {
+      initializeViewer(result.xyz_data);
+    }
+  }, [result, viewerLoaded]);
+
+  const initializeViewer = (xyzData: string) => {
+    try {
+      if (!viewerRef.current || !(window as any).$3Dmol) {
+        console.error('Viewer not ready');
+        return;
+      }
+
+      // Clear previous viewer
+      if (viewerInstanceRef.current) {
+        viewerInstanceRef.current.clear();
+      }
+
+      viewerRef.current.innerHTML = '';
+      
+      const config = {
+        backgroundColor: '#f8f9fa',
+        antialias: true,
+      };
+      
+      const viewer = (window as any).$3Dmol.createViewer(viewerRef.current, config);
+      viewerInstanceRef.current = viewer;
+      
+      viewer.addModel(xyzData, 'xyz');
+      viewer.setStyle({}, {
+        sphere: { radius: 0.5, color: 'spectrum' },
+        stick: { radius: 0.15, color: 'grey' }
+      });
+      
+      viewer.setBackgroundColor('#f8f9fa');
+      viewer.zoomTo();
+      viewer.render();
+      viewer.zoom(1.3, 1000);
+      
+      console.log('3D viewer initialized successfully');
+    } catch (err) {
+      console.error('Error initializing viewer:', err);
+      setError('Failed to render 3D structure');
     }
   };
 
-  const handleGenerate = async () => {
-    setIsGenerating(true);
-    
-    // Simulate AI generation process
-    await new Promise(resolve => setTimeout(resolve, 3000));
-    
-    const mockResults = [
-      {
-        id: 1,
-        formula: 'TiO₂',
-        bandGap: '3.2 eV',
-        symmetry: 'Tetragonal',
-        magnetism: 'Diamagnetic',
-        stability: 0.95,
-        spaceGroup: 'P42/mnm'
-      },
-      {
-        id: 2,
-        formula: 'CaTiO₃',
-        bandGap: '3.6 eV',
-        symmetry: 'Cubic',
-        magnetism: 'Paramagnetic',
-        stability: 0.87,
-        spaceGroup: 'Pm-3m'
-      },
-      {
-        id: 3,
-        formula: 'SrTiO₃',
-        bandGap: '3.4 eV',
-        symmetry: 'Cubic',
-        magnetism: 'Diamagnetic',
-        stability: 0.92,
-        spaceGroup: 'Pm-3m'
+  const handleAddElement = () => {
+    if (newElement && availableElements.includes(newElement)) {
+      const existingIndex = composition.findIndex(c => c.element === newElement);
+      if (existingIndex >= 0) {
+        const updated = [...composition];
+        updated[existingIndex].amount = newAmount;
+        setComposition(updated);
+      } else {
+        setComposition([...composition, { element: newElement, amount: newAmount }]);
       }
-    ];
-    
-    setResults(mockResults);
-    setIsGenerating(false);
+      setNewElement('');
+      setNewAmount(1);
+    }
   };
 
-  const downloadCIF = (result: any) => {
-    const cifContent = `# Generated by CrystalGen
-data_${result.formula}
-_chemical_formula_sum '${result.formula}'
-_cell_length_a 3.905
-_cell_length_b 3.905
-_cell_length_c 3.905
-_cell_angle_alpha 90.0
-_cell_angle_beta 90.0
-_cell_angle_gamma 90.0
-_space_group_name_H-M_alt '${result.spaceGroup}'
-`;
-    
-    const blob = new Blob([cifContent], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${result.formula}.cif`;
-    a.click();
-    URL.revokeObjectURL(url);
+  const handleRemoveElement = (index: number) => {
+    setComposition(composition.filter((_, i) => i !== index));
+  };
+
+  const handleGenerate = async () => {
+    if (composition.length === 0) {
+      setError('Please add at least one element to the composition');
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    setResult(null);
+
+    try {
+      const compositionDict: Record<string, number> = {};
+      composition.forEach(c => {
+        compositionDict[c.element] = c.amount;
+      });
+
+      console.log('Sending request to:', `${API_URL}/generate`);
+      console.log('Request data:', {
+        spacegroup,
+        composition: compositionDict,
+        num_atoms: numAtoms,
+        temperature
+      });
+
+      const response = await fetch(`${API_URL}/generate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          spacegroup: spacegroup,
+          composition: compositionDict,
+          num_atoms: numAtoms,
+          temperature: temperature,
+        }),
+      });
+
+      const data: StructureResponse = await response.json();
+      console.log('Response:', data);
+
+      if (data.success) {
+        setResult(data);
+        setError(null);
+      } else {
+        setError(data.error || 'Failed to generate structure');
+        setResult(null);
+      }
+    } catch (err: any) {
+      setError(`Failed to connect to API: ${err.message}`);
+      console.error('API Error:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDownloadCIF = () => {
+    if (result && result.cif_data) {
+      const blob = new Blob([result.cif_data], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${result.formula}_sg${result.spacegroup}.cif`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+  };
+
+  const presetCompositions = [
+    { label: 'FeO', elements: [{ element: 'Fe', amount: 1 }, { element: 'O', amount: 1 }] },
+    { label: 'TiO₂', elements: [{ element: 'Ti', amount: 1 }, { element: 'O', amount: 2 }] },
+    { label: 'NaCl', elements: [{ element: 'Na', amount: 1 }, { element: 'Cl', amount: 1 }] },
+    { label: 'SiO₂', elements: [{ element: 'Si', amount: 1 }, { element: 'O', amount: 2 }] },
+  ];
+
+  const applyPreset = (preset: typeof presetCompositions[0]) => {
+    setComposition(preset.elements);
   };
 
   return (
-    <div className="space-y-8">
-      {/* Header */}
-      <div className="text-center space-y-4">
-        <h1 className="text-3xl md:text-4xl font-bold text-slate-900">
-          Generate Crystal Structures
-        </h1>
-        <p className="text-lg text-slate-600 max-w-2xl mx-auto">
-          Define your target properties and let our AI generate optimized crystal structures.
-        </p>
-      </div>
-
-      <div className="grid lg:grid-cols-2 gap-8">
-        {/* Input Panel */}
-        <div className="space-y-6">
-          {/* File Upload */}
-          <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100">
-            <h3 className="text-lg font-semibold text-slate-900 mb-4 flex items-center space-x-2">
-              <Upload className="w-5 h-5 text-blue-600" />
-              <span>Import Structure (Optional)</span>
-            </h3>
-            <div className="border-2 border-dashed border-slate-200 rounded-xl p-6 text-center hover:border-blue-300 transition-colors">
-              <input
-                type="file"
-                accept=".cif"
-                onChange={handleFileUpload}
-                className="hidden"
-                id="cif-upload"
-              />
-              <label htmlFor="cif-upload" className="cursor-pointer">
-                <div className="space-y-2">
-                  <div className="w-12 h-12 bg-blue-50 rounded-lg mx-auto flex items-center justify-center">
-                    <Upload className="w-6 h-6 text-blue-600" />
-                  </div>
-                  <p className="text-sm font-medium text-slate-700">
-                    {uploadedFile ? uploadedFile.name : 'Upload CIF file'}
-                  </p>
-                  <p className="text-xs text-slate-500">
-                    Use as reference structure or starting point
-                  </p>
-                </div>
-              </label>
-            </div>
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 p-4 md:p-6">
+      <div className="max-w-7xl mx-auto">
+        {/* Header */}
+        <div className="text-center mb-8">
+          <div className="flex items-center justify-center gap-3 mb-4">
+            <FlaskConical className="w-10 h-10 md:w-12 md:h-12 text-indigo-600" />
+            <h1 className="text-3xl md:text-5xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
+              Crystal Structure Generator
+            </h1>
           </div>
-
-          {/* Generation Parameters */}
-          <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100">
-            <h3 className="text-lg font-semibold text-slate-900 mb-6 flex items-center space-x-2">
-              <Settings className="w-5 h-5 text-blue-600" />
-              <span>Target Properties</span>
-            </h3>
-            
-            <div className="grid md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Band Gap (eV)
-                </label>
-                <input
-                  type="number"
-                  value={params.bandGap}
-                  onChange={(e) => handleInputChange('bandGap', e.target.value)}
-                  placeholder="e.g., 2.5"
-                  step="0.1"
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Crystal System
-                </label>
-                <select
-                  value={params.symmetry}
-                  onChange={(e) => handleInputChange('symmetry', e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                >
-                  <option value="">Any</option>
-                  <option value="cubic">Cubic</option>
-                  <option value="tetragonal">Tetragonal</option>
-                  <option value="orthorhombic">Orthorhombic</option>
-                  <option value="hexagonal">Hexagonal</option>
-                  <option value="trigonal">Trigonal</option>
-                  <option value="monoclinic">Monoclinic</option>
-                  <option value="triclinic">Triclinic</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Magnetic Property
-                </label>
-                <select
-                  value={params.magneticProperty}
-                  onChange={(e) => handleInputChange('magneticProperty', e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                >
-                  <option value="">Any</option>
-                  <option value="diamagnetic">Diamagnetic</option>
-                  <option value="paramagnetic">Paramagnetic</option>
-                  <option value="ferromagnetic">Ferromagnetic</option>
-                  <option value="antiferromagnetic">Antiferromagnetic</option>
-                  <option value="ferrimagnetic">Ferrimagnetic</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Bulk Modulus (GPa)
-                </label>
-                <input
-                  type="number"
-                  value={params.bulkModulus}
-                  onChange={(e) => handleInputChange('bulkModulus', e.target.value)}
-                  placeholder="e.g., 150"
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Density (g/cm³)
-                </label>
-                <input
-                  type="number"
-                  value={params.density}
-                  onChange={(e) => handleInputChange('density', e.target.value)}
-                  placeholder="e.g., 4.2"
-                  step="0.1"
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Space Group
-                </label>
-                <input
-                  type="text"
-                  value={params.spaceGroup}
-                  onChange={(e) => handleInputChange('spaceGroup', e.target.value)}
-                  placeholder="e.g., Pm-3m"
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                />
-              </div>
-            </div>
-
-            <div className="mt-4">
-              <label className="block text-sm font-medium text-slate-700 mb-2">
-                Chemical Composition
-              </label>
-              <input
-                type="text"
-                value={params.composition}
-                onChange={(e) => handleInputChange('composition', e.target.value)}
-                placeholder="e.g., ABO₃, A₂BO₄, or specific elements"
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-              />
-            </div>
-
-            <button
-              onClick={handleGenerate}
-              disabled={isGenerating}
-              className="w-full mt-6 bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-3 rounded-xl font-semibold disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-lg transform hover:-translate-y-0.5 transition-all duration-200 flex items-center justify-center space-x-2"
-            >
-              {isGenerating ? (
-                <>
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  <span>Generating Structures...</span>
-                </>
-              ) : (
-                <>
-                  <Zap className="w-5 h-5" />
-                  <span>Generate Crystals</span>
-                </>
-              )}
-            </button>
-          </div>
+          <p className="text-base md:text-lg text-gray-600 max-w-2xl mx-auto px-4">
+            Generate crystal structures using AI-powered CVAE model with 3D visualization
+          </p>
         </div>
 
-        {/* Results Panel */}
-        <div className="space-y-6">
-          {/* Generation Status */}
-          {isGenerating && (
-            <div className="bg-blue-50 rounded-2xl p-6 border border-blue-100">
-              <div className="flex items-center space-x-3">
-                <Loader2 className="w-6 h-6 text-blue-600 animate-spin" />
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8">
+          {/* Left Panel - Configuration */}
+          <div className="space-y-6">
+            <div className="bg-white rounded-2xl shadow-xl p-6 md:p-8 border border-gray-100">
+              <h2 className="text-xl md:text-2xl font-bold mb-6 flex items-center gap-3">
+                <Sliders className="w-6 h-6 md:w-7 md:h-7 text-indigo-600" />
+                Configuration
+              </h2>
+
+              <div className="space-y-6">
+                {/* Space Group */}
                 <div>
-                  <h3 className="font-semibold text-blue-900">Generating Crystal Structures</h3>
-                  <p className="text-sm text-blue-700">AI is analyzing constraints and generating candidates...</p>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    Space Group (1-230)
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="230"
+                    value={spacegroup}
+                    onChange={(e) => setSpacegroup(parseInt(e.target.value) || 1)}
+                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all text-lg"
+                  />
+                  <p className="text-xs text-gray-500 mt-2">
+                    Common: 225 (Fm-3m), 194 (P6₃/mmc), 221 (Pm-3m)
+                  </p>
                 </div>
-              </div>
-            </div>
-          )}
 
-          {/* Results */}
-          {results.length > 0 && (
-            <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100">
-              <h3 className="text-lg font-semibold text-slate-900 mb-6 flex items-center space-x-2">
-                <CheckCircle className="w-5 h-5 text-emerald-600" />
-                <span>Generated Structures ({results.length})</span>
-              </h3>
+                {/* Composition */}
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    Chemical Composition
+                  </label>
+                  
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    {presetCompositions.map((preset, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => applyPreset(preset)}
+                        className="px-3 py-1 text-sm bg-gray-100 hover:bg-indigo-100 hover:text-indigo-700 rounded-lg transition-colors"
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                  </div>
 
-              <div className="space-y-4">
-                {results.map((result) => (
-                  <div
-                    key={result.id}
-                    className="border border-slate-200 rounded-xl p-4 hover:border-slate-300 transition-colors"
-                  >
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center space-x-3">
-                        <div className="w-10 h-10 bg-gradient-to-br from-emerald-500 to-blue-600 rounded-lg flex items-center justify-center">
-                          <Atom className="w-5 h-5 text-white" />
-                        </div>
-                        <div>
-                          <h4 className="font-semibold text-slate-900">{result.formula}</h4>
-                          <p className="text-sm text-slate-500">{result.symmetry} • {result.spaceGroup}</p>
-                        </div>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <div className={`px-2 py-1 rounded-full text-xs font-medium ${
-                          result.stability > 0.9 
-                            ? 'bg-emerald-100 text-emerald-700' 
-                            : result.stability > 0.8
-                            ? 'bg-yellow-100 text-yellow-700'
-                            : 'bg-red-100 text-red-700'
-                        }`}>
-                          {Math.round(result.stability * 100)}% stable
-                        </div>
+                  <div className="flex gap-2 mb-3">
+                    <select
+                      value={newElement}
+                      onChange={(e) => setNewElement(e.target.value)}
+                      className="flex-1 px-4 py-2 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
+                    >
+                      <option value="">Select element</option>
+                      {availableElements.map((el) => (
+                        <option key={el} value={el}>{el}</option>
+                      ))}
+                    </select>
+                    <input
+                      type="number"
+                      min="0.1"
+                      step="0.1"
+                      value={newAmount}
+                      onChange={(e) => setNewAmount(parseFloat(e.target.value) || 1)}
+                      className="w-20 px-3 py-2 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
+                    />
+                    <button
+                      onClick={handleAddElement}
+                      disabled={!newElement}
+                      className="px-4 py-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:bg-gray-300"
+                    >
+                      <Plus className="w-5 h-5" />
+                    </button>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2 min-h-[40px]">
+                    {composition.map((comp, idx) => (
+                      <div
+                        key={idx}
+                        className="flex items-center gap-2 bg-indigo-100 px-4 py-2 rounded-full"
+                      >
+                        <span className="font-bold text-indigo-900">{comp.element}</span>
+                        <span className="text-sm text-indigo-700">{comp.amount}</span>
                         <button
-                          onClick={() => downloadCIF(result)}
-                          className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                          onClick={() => handleRemoveElement(idx)}
+                          className="text-red-500 hover:text-red-700"
                         >
-                          <Download className="w-4 h-4" />
+                          <X className="w-4 h-4" />
                         </button>
                       </div>
-                    </div>
+                    ))}
+                  </div>
+                </div>
 
-                    <div className="grid grid-cols-3 gap-4 text-sm">
+                {/* Number of Atoms */}
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    Number of Atoms: <span className="text-indigo-600">{numAtoms}</span>
+                  </label>
+                  <input
+                    type="range"
+                    min="4"
+                    max="32"
+                    value={numAtoms}
+                    onChange={(e) => setNumAtoms(parseInt(e.target.value))}
+                    className="w-full"
+                  />
+                  <div className="flex justify-between text-xs text-gray-500 mt-1">
+                    <span>4</span>
+                    <span>32</span>
+                  </div>
+                </div>
+
+                {/* Temperature */}
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    Temperature: <span className="text-indigo-600">{temperature.toFixed(1)}</span>
+                  </label>
+                  <input
+                    type="range"
+                    min="0.1"
+                    max="2.0"
+                    step="0.1"
+                    value={temperature}
+                    onChange={(e) => setTemperature(parseFloat(e.target.value))}
+                    className="w-full"
+                  />
+                  <div className="flex justify-between text-xs text-gray-500 mt-1">
+                    <span>0.1</span>
+                    <span>2.0</span>
+                  </div>
+                </div>
+
+                {/* Generate Button */}
+                <button
+                  onClick={handleGenerate}
+                  disabled={loading || composition.length === 0}
+                  className="w-full py-4 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-xl hover:from-indigo-700 hover:to-purple-700 disabled:from-gray-400 disabled:to-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-3 text-lg font-semibold shadow-lg"
+                >
+                  {loading ? (
+                    <>
+                      <Loader2 className="w-6 h-6 animate-spin" />
+                      Generating...
+                    </>
+                  ) : (
+                    <>
+                      <Atom className="w-6 h-6" />
+                      Generate Structure
+                    </>
+                  )}
+                </button>
+
+                {/* Error Display */}
+                {error && (
+                  <div className="p-4 bg-red-50 border-2 border-red-200 rounded-xl flex gap-3">
+                    <AlertCircle className="w-6 h-6 text-red-600 flex-shrink-0" />
+                    <div>
+                      <p className="text-sm font-semibold text-red-900">Error</p>
+                      <p className="text-sm text-red-700">{error}</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Right Panel - Results */}
+          <div>
+            {result ? (
+              <div className="bg-white rounded-2xl shadow-xl p-6 md:p-8 border border-gray-100">
+                <div className="flex items-center justify-between mb-6">
+                  <h2 className="text-xl md:text-2xl font-bold flex items-center gap-3">
+                    <CheckCircle2 className="w-6 h-6 md:w-7 md:h-7 text-green-600" />
+                    Generated
+                  </h2>
+                  <button
+                    onClick={handleDownloadCIF}
+                    className="px-4 py-2 bg-green-600 text-white rounded-xl hover:bg-green-700 flex items-center gap-2"
+                  >
+                    <Download className="w-5 h-5" />
+                    CIF
+                  </button>
+                </div>
+
+                {/* 3D Viewer */}
+                <div className="mb-6">
+                  <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
+                    <Eye className="w-5 h-5 text-indigo-600" />
+                    3D Visualization
+                  </h3>
+                  <div
+                    ref={viewerRef}
+                    className="w-full h-80 md:h-96 border-4 border-gray-200 rounded-2xl bg-gray-50"
+                    style={{ position: 'relative' }}
+                  >
+                    {!viewerLoaded && (
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Structure Info */}
+                <div className="space-y-4">
+                  <div className="bg-gradient-to-r from-indigo-50 to-purple-50 p-5 rounded-xl">
+                    <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <span className="text-slate-500">Band Gap:</span>
-                        <p className="font-medium text-slate-900">{result.bandGap}</p>
+                        <p className="text-xs text-gray-600 mb-1">Formula</p>
+                        <p className="text-lg font-bold text-indigo-900">{result.formula}</p>
                       </div>
                       <div>
-                        <span className="text-slate-500">Magnetism:</span>
-                        <p className="font-medium text-slate-900">{result.magnetism}</p>
+                        <p className="text-xs text-gray-600 mb-1">Space Group</p>
+                        <p className="text-lg font-bold text-indigo-900">{result.spacegroup}</p>
                       </div>
                       <div>
-                        <span className="text-slate-500">Space Group:</span>
-                        <p className="font-medium text-slate-900">{result.spaceGroup}</p>
+                        <p className="text-xs text-gray-600 mb-1">Atoms</p>
+                        <p className="text-lg font-bold text-indigo-900">{result.atoms?.length || 0}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-600 mb-1">Volume</p>
+                        <p className="text-lg font-bold text-indigo-900">
+                          {result.lattice_parameters?.volume.toFixed(2)} Ų
+                        </p>
                       </div>
                     </div>
                   </div>
-                ))}
-              </div>
-            </div>
-          )}
 
-          {/* Empty State */}
-          {!isGenerating && results.length === 0 && (
-            <div className="bg-slate-50 rounded-2xl p-12 text-center border-2 border-dashed border-slate-200">
-              <div className="w-16 h-16 bg-slate-100 rounded-2xl mx-auto mb-4 flex items-center justify-center">
-                <Atom className="w-8 h-8 text-slate-400" />
+                  {/* Lattice Parameters */}
+                  {result.lattice_parameters && (
+                    <div className="border-2 border-gray-200 rounded-xl p-5">
+                      <h3 className="text-base font-semibold mb-3 flex items-center gap-2">
+                        <Info className="w-5 h-5 text-indigo-600" />
+                        Lattice
+                      </h3>
+                      <div className="grid grid-cols-3 gap-3">
+                        {['a', 'b', 'c'].map((param) => (
+                          <div key={param} className="bg-gray-50 p-3 rounded-lg">
+                            <p className="text-xs text-gray-500">{param}</p>
+                            <p className="text-base font-bold">
+                              {result.lattice_parameters![param as keyof typeof result.lattice_parameters].toFixed(3)} Å
+                            </p>
+                          </div>
+                        ))}
+                        {['alpha', 'beta', 'gamma'].map((param) => (
+                          <div key={param} className="bg-gray-50 p-3 rounded-lg">
+                            <p className="text-xs text-gray-500">{param}</p>
+                            <p className="text-base font-bold">
+                              {result.lattice_parameters![param as keyof typeof result.lattice_parameters].toFixed(1)}°
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Atoms Table */}
+                  {result.atoms && result.atoms.length > 0 && (
+                    <div className="border-2 border-gray-200 rounded-xl p-5">
+                      <h3 className="text-base font-semibold mb-3 flex items-center gap-2">
+                        <FileText className="w-5 h-5 text-indigo-600" />
+                        Positions
+                      </h3>
+                      <div className="max-h-64 overflow-y-auto">
+                        <table className="w-full text-sm">
+                          <thead className="bg-gray-50 sticky top-0">
+                            <tr>
+                              <th className="px-2 py-2 text-left">#</th>
+                              <th className="px-2 py-2 text-left">El</th>
+                              <th className="px-2 py-2 text-left">X</th>
+                              <th className="px-2 py-2 text-left">Y</th>
+                              <th className="px-2 py-2 text-left">Z</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {result.atoms.map((atom, idx) => (
+                              <tr key={idx} className="border-t">
+                                <td className="px-2 py-2">{idx + 1}</td>
+                                <td className="px-2 py-2 font-bold">{atom.element}</td>
+                                <td className="px-2 py-2">{atom.position[0].toFixed(3)}</td>
+                                <td className="px-2 py-2">{atom.position[1].toFixed(3)}</td>
+                                <td className="px-2 py-2">{atom.position[2].toFixed(3)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
-              <h3 className="text-lg font-semibold text-slate-600 mb-2">
-                Ready to Generate
-              </h3>
-              <p className="text-slate-500">
-                Set your target properties and click generate to discover new crystal structures.
-              </p>
-            </div>
-          )}
+            ) : (
+              <div className="bg-white rounded-2xl shadow-xl p-12 border border-gray-100 flex flex-col items-center justify-center min-h-[500px]">
+                <div className="w-20 h-20 bg-gradient-to-br from-indigo-100 to-purple-100 rounded-3xl flex items-center justify-center mb-6">
+                  <Atom className="w-10 h-10 text-indigo-600" />
+                </div>
+                <h3 className="text-2xl font-bold text-gray-700 mb-3">
+                  Ready to Generate
+                </h3>
+                <p className="text-gray-500 text-center max-w-md">
+                  Configure parameters and click generate
+                </p>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
