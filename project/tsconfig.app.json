@@ -22,20 +22,3 @@
   },
   "include": ["src"]
 }
-1.minikube start --driver=docker
-2.kubectl create deployment mynginx --image=nginx
-3.kubectl get deployments
-4.kubectl get pods
-5.kubectl expose deployment mynginx --type=NodePort --port=80 --target-port=80
-6.kubectl scale deployment mynginx --replicas=4
-7.kubectl get service myngnix
-8.kubectl port-forward svc/mynginx 8081:80
-9.kubectl delete service mynginx
-10.minikube stop
-//Nagios
-1.docker pull jasonrivers/nagios:latest
-2.docker run --name nagiosdemo -p 8888:80 jasonrivers/nagios:latest
-3.access on http://localhost:8888
-4.	Username: nagiosadmin
-	Password: nagios
-5.docker stop nagiosdemo
